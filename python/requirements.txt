@@ -12,3 +12,5 @@ opencv-python-headless==5.0.0.93
 # Framework utilizado pelos testes publicos do template e pelos testes
 # adicionais que o estudante decidir escrever.
 pytest==9.0.2
+
+numpy

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import numpy as np
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -39,6 +40,45 @@ def write_histogram_csv(path: str | Path, histogram: Sequence[int]) -> None:
             exit_code.WRITE_ERROR,
             f"Nao foi possivel criar o CSV: {output}",
         ) from error
+
+# Função auxiliar para gravar o resultado do algoritmo laplaciano em csv, similar à função do histograma
+def write_matrix_csv(path: str | Path, matrix: np.ndarray) -> None:
+    """Salva uma matriz numerica preservando os valores calculados."""
+
+
+    if matrix is None or matrix.size == 0:
+        raise ValueError("A matriz de saida esta vazia.")
+
+    if matrix.ndim != 2:
+        raise ValueError("A matriz deve possuir duas dimensoes.")
+
+    output = Path(path)
+    output = output.with_name(f"{output.stem}_raw.csv")
+    output = ensure_parent_directory(output)
+
+    try:
+        with output.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+
+            for row in matrix:
+                writer.writerow([float(value) for value in row])
+
+    except OSError as error:
+        raise PdiError(
+            exit_code.WRITE_ERROR,
+            f"Nao foi possivel criar o CSV: {output}",
+        ) from error
+
+
+# Função para auxiliar no salvamento de diferentes arquivos gerados pelo Sobel
+def derived_output_path(path: str | Path, suffix: str) -> Path:
+    """Cria um caminho de saída derivado do arquivo informado."""
+
+    output = Path(path)
+
+    return output.with_name(
+        f"{output.stem}_{suffix}{output.suffix}"
+    )
 
 
 def write_json_object(path: str | Path, values: Mapping[str, str]) -> None:
