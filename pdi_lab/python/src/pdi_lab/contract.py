@@ -74,6 +74,68 @@ def _validate_parameters(options: CliOptions) -> ValidationResult:
                     "--threshold deve estar entre 0 e 255.",
                 )
 
+        elif options.operation == "segment":
+            required = _require(options, "method")
+            if not required.ok:
+                return required
+
+            method = options.parameters.get("method")
+
+            if method not in {"fixed", "hsv"}:
+                return ValidationResult(
+                    exit_code.INVALID_PARAMETER,
+                    "--method deve ser fixed ou hsv.",
+                )
+
+            if method == "fixed":
+                required = _require(options, "threshold")
+                if not required.ok:
+                    return required
+
+                threshold = parameter_as_int(options, "threshold")
+                if not 0 <= threshold <= 255:
+                    return ValidationResult(
+                        exit_code.INVALID_PARAMETER,
+                        "--threshold deve estar entre 0 e 255.",
+                    )
+
+            elif method == "hsv":
+                ranges = {
+                    "h": (0, 179),
+                    "s": (0, 255),
+                    "v": (0, 255),
+                }
+
+                for channel, (minimum, maximum) in ranges.items():
+                    for suffix in ("min", "max"):
+                        name = f"{channel}_{suffix}"
+
+                        required = _require(options, name)
+                        if not required.ok:
+                            return required
+
+                        value = parameter_as_int(options, name)
+                        if not minimum <= value <= maximum:
+                            return ValidationResult(
+                                exit_code.INVALID_PARAMETER,
+                                f"--{name} deve estar entre "
+                                f"{minimum} e {maximum}.",
+                            )
+
+                    lower_value = parameter_as_int(
+                        options, f"{channel}_min"
+                    )
+                    upper_value = parameter_as_int(
+                        options, f"{channel}_max"
+                    )
+
+                    if lower_value > upper_value:
+                        return ValidationResult(
+                            exit_code.INVALID_PARAMETER,
+                            f"O limite mínimo de {channel.upper()} "
+                            "não pode exceder o máximo.",
+                        )
+
         elif options.operation == "convolution":
             required = _require(options, "kernel")
             if not required.ok:

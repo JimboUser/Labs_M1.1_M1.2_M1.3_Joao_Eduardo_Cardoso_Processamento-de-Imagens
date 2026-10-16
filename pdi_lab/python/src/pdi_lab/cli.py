@@ -21,6 +21,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Projeto-base dos laboratorios M1 de Processamento de Imagens",
     )
     parser.add_argument("--version", action="store_true")
+    parser.add_argument(
+        "--invert",
+        action="store_true",
+        help="Inverte a máscara de segmentação.",
+    )
 
     # As três linguagens expõem os mesmos nomes de parâmetros.
     for name in [
@@ -34,6 +39,13 @@ def build_parser() -> argparse.ArgumentParser:
         "kernel",
         "border",
         "size",
+        "method",
+        "h_min",
+        "s_min",
+        "v_min",
+        "h_max",
+        "s_max",
+        "v_max",
     ]:
         parser.add_argument(f"--{name}")
 
@@ -46,7 +58,16 @@ def parse_cli(argv=None) -> CliOptions:
     operation = values.pop("operation")
     input_path = values.pop("input")
     output_path = values.pop("output")
-    parameters = {name: value for name, value in values.items() if value is not None}
+    invert = bool(values.pop("invert"))
+
+    parameters = {
+        name: value
+        for name, value in values.items()
+        if value is not None
+    }
+
+    if invert:
+        parameters["invert"] = True
 
     return CliOptions(
         operation=operation,
@@ -55,6 +76,7 @@ def parse_cli(argv=None) -> CliOptions:
         version=version,
         parameters=parameters,
     )
+
 
 
 def version_requested(options: CliOptions) -> bool:

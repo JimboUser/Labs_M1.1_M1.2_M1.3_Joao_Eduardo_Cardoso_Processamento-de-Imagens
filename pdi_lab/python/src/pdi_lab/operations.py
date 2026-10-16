@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import cv2
 import numpy as np
 
 from . import exit_code
@@ -47,6 +48,9 @@ KNOWN_OPERATIONS = {
     "weighted_mean",
     "laplacian",
     "sobel",
+
+    # M2.1 —
+    "segment",
 }
 
 
@@ -638,6 +642,40 @@ def sobel(
         magnitude_euclidiana,
     )
 
+
+# ---------------------------------------------------------------------------
+# Operações M2-1
+# ---------------------------------------------------------------------------
+
+
+def segment_fixed(image, threshold, invert=False):
+    gray = image
+
+    if image.ndim == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    if invert:
+        mask = np.where(gray < threshold, 255, 0).astype(np.uint8)
+    else:
+        mask = np.where(gray >= threshold, 255, 0).astype(np.uint8)
+
+    return mask
+
+
+
+def segment_hsv(image, lower, upper):
+    if image.ndim != 3 or image.shape[2] != 3:
+        raise ValueError(
+            "A segmentação HSV exige uma imagem colorida BGR."
+        )
+
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    lower = np.array(lower, dtype=np.uint8)
+    upper = np.array(upper, dtype=np.uint8)
+
+    return cv2.inRange(hsv, lower, upper)
+
+
 # ---------------------------------------------------------------------------
 # Despacho das operações
 # ---------------------------------------------------------------------------
@@ -787,6 +825,62 @@ def run_operation(options: CliOptions) -> int:
         write_image(gy_path, gy_visual)
         write_image(aproximada_path, aproximada_visual)
         write_image(euclidiana_path, euclidiana_visual)
+
+        return exit_code.SUCCESS
+
+    if options.operation == "segment":
+        method = options.parameters.get("method")
+
+        if method == "fixed":
+            threshold_value = parameter_as_int(options, "threshold")
+            invert = options.parameters.get("invert", False)
+
+            resultado = segment_fixed(
+                image,
+                threshold_value,
+                invert=invert,
+            )
+
+        elif method == "hsv":
+            lower = [
+                parameter_as_int(options, "h_min"),
+                parameter_as_int(options, "s_min"),
+                parameter_as_int(options, "v_min"),
+            ]
+
+            upper = [
+                parameter_as_int(options, "h_max"),
+                parameter_as_int(options, "s_max"),
+                parameter_as_int(options, "v_max"),
+            ]
+
+            resultado = segment_hsv(image, lower, upper)
+
+        else:
+            raise ValueError(
+                "Método de segmentação inválido. Use fixed ou hsv."
+            )
+
+        if resultado.ndim != 2 or not np.isin(
+                resultado, [0, 255]
+        ).all():
+            raise ValueError(
+                "A segmentação não produziu uma máscara binária válida."
+            )
+
+        write_image(options.output, resultado)
+
+        pixels_fundo = int(np.count_nonzero(resultado == 0))
+        pixels_objeto = int(np.count_nonzero(resultado == 255))
+        total_pixels = int(resultado.size)
+
+        print(f"Método: {method}")
+        print(f"Pixels classificados como 0: {pixels_fundo}")
+        print(f"Pixels classificados como 255: {pixels_objeto}")
+        print(
+            f"Proporção de pixels 255: "
+            f"{100 * pixels_objeto / total_pixels:.2f}%"
+        )
 
         return exit_code.SUCCESS
 

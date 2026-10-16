@@ -4,11 +4,11 @@ import cv2
 import numpy as np
 
 from pdi_lab.operations import (
-    copy_image_manual,
+    copy,
     extract_channel,
     grayscale_average,
     grayscale_weighted,
-    quantize_image,
+    quantize,
 )
 
 
@@ -21,7 +21,7 @@ def test_copy_image_manual():
         cv2.IMREAD_UNCHANGED,
     )
 
-    copia = copy_image_manual(image)
+    copia = copy(image)
 
     assert np.array_equal(image, copia)
 
@@ -92,7 +92,7 @@ def test_quantization_levels():
     }
 
     for levels, quantidade_esperada in esperados.items():
-        resultado = quantize_image(image, levels)
+        resultado = quantize(image, levels)
 
         valores = np.unique(resultado)
 
@@ -107,7 +107,7 @@ def test_quantization_boundaries():
         cv2.IMREAD_GRAYSCALE,
     )
 
-    resultado = quantize_image(image, 4)
+    resultado = quantize(image, 4)
 
     esperado = np.array(
         [[0, 0, 0, 85, 85, 170, 170, 255, 255, 255]],

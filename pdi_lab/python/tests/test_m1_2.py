@@ -4,11 +4,11 @@ import cv2
 import numpy as np
 
 from pdi_lab.operations import (
-    adjust_brightness,
-    adjust_contrast,
-    calculate_histogram,
-    negative_image,
-    threshold_image,
+    brightness,
+    contrast,
+    histogram,
+    negative,
+    threshold,
 )
 
 INPUT_DIR = Path("images/input")
@@ -20,7 +20,7 @@ def test_brightness_positive():
         dtype=np.uint8,
     )
 
-    resultado = adjust_brightness(image, 20)
+    resultado = brightness(image, 20)
 
     esperado = np.array(
         [[20, 70, 120, 148, 220, 255, 255]],
@@ -36,7 +36,7 @@ def test_brightness_negative():
         dtype=np.uint8,
     )
 
-    resultado = adjust_brightness(image, -30)
+    resultado = brightness(image, -30)
 
     esperado = np.array(
         [[0, 20, 70, 98, 170, 220, 225]],
@@ -52,7 +52,7 @@ def test_brightness_saturation():
         dtype=np.uint8,
     )
 
-    resultado = adjust_brightness(image, 20)
+    resultado = brightness(image, 20)
 
     esperado = np.array(
         [[20, 255, 255]],
@@ -68,7 +68,7 @@ def test_contrast_reduced():
         dtype=np.uint8,
     )
 
-    resultado = adjust_contrast(image, 0.5)
+    resultado = contrast(image, 0.5)
 
     esperado = np.array(
         [[64, 89, 114, 128, 164, 192]],
@@ -84,7 +84,7 @@ def test_contrast_identity():
         dtype=np.uint8,
     )
 
-    resultado = adjust_contrast(image, 1.0)
+    resultado = contrast(image, 1.0)
 
     assert np.array_equal(resultado, image)
 
@@ -95,7 +95,7 @@ def test_contrast_increased():
         dtype=np.uint8,
     )
 
-    resultado = adjust_contrast(image, 1.5)
+    resultado = contrast(image, 1.5)
 
     esperado = np.array(
         [[0, 11, 86, 128, 236, 255]],
@@ -111,7 +111,7 @@ def test_negative():
         dtype=np.uint8,
     )
 
-    resultado = negative_image(image)
+    resultado = negative(image)
 
     esperado = np.array(
         [[255, 205, 155, 127, 55, 0]],
@@ -127,7 +127,7 @@ def test_threshold_low():
         dtype=np.uint8,
     )
 
-    resultado = threshold_image(image, 100)
+    resultado = threshold(image, 100)
 
     esperado = np.array(
         [[0, 0, 255, 255, 255, 255]],
@@ -143,7 +143,7 @@ def test_threshold_high():
         dtype=np.uint8,
     )
 
-    resultado = threshold_image(image, 200)
+    resultado = threshold(image, 200)
 
     esperado = np.array(
         [[0, 0, 0, 0, 255, 255]],
@@ -159,7 +159,7 @@ def test_histogram():
         dtype=np.uint8,
     )
 
-    resultado = calculate_histogram(image)
+    resultado = histogram(image)
 
     assert len(resultado) == 256
     assert resultado[0] == 2
