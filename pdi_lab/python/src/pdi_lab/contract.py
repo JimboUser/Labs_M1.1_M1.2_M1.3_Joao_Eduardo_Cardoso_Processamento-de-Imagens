@@ -136,6 +136,35 @@ def _validate_parameters(options: CliOptions) -> ValidationResult:
                             "não pode exceder o máximo.",
                         )
 
+        elif options.operation == "analyze":
+            # Conectividade: padrao 8 quando nao informada.
+            if has_parameter(options, "connectivity"):
+                connectivity = parameter_as_int(
+                    options, "connectivity"
+                )
+            else:
+                connectivity = 8
+
+            if connectivity not in {4, 8}:
+                return ValidationResult(
+                    exit_code.INVALID_PARAMETER,
+                    "--connectivity deve ser 4 ou 8.",
+                )
+
+            # Area minima: opcional, com padrao 0.
+            if has_parameter(options, "min_area"):
+                min_area = parameter_as_int(
+                    options, "min_area"
+                )
+            else:
+                min_area = 0
+
+            if min_area < 0:
+                return ValidationResult(
+                    exit_code.INVALID_PARAMETER,
+                    "--min-area deve ser um inteiro nao negativo.",
+                )
+
         elif options.operation == "convolution":
             required = _require(options, "kernel")
             if not required.ok:

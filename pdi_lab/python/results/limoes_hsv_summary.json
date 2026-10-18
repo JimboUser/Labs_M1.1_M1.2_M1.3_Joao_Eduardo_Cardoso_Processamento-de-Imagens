@@ -1,0 +1,43 @@
+{
+  "connectivity": 8,
+  "min_area": 20,
+  "morphology": {
+    "kernel_shape": "ellipse",
+    "kernel_size": 3,
+    "iterations": 1,
+    "sequence": [
+      {
+        "operation": "open",
+        "purpose": "Remover pequenos componentes e testar a reducao de conexoes estreitas."
+      },
+      {
+        "operation": "close",
+        "purpose": "Preencher pequenas lacunas e testar a continuidade das regioes."
+      }
+    ]
+  },
+  "stage_statistics": [
+    {
+      "stage": 1,
+      "operation": "open",
+      "components": 3,
+      "foreground_area": 374443
+    },
+    {
+      "stage": 2,
+      "operation": "close",
+      "components": 2,
+      "foreground_area": 374485
+    }
+  ],
+  "initial_components_connectivity_4": 26,
+  "initial_components_connectivity_8": 21,
+  "initial_components_raw": 21,
+  "initial_components_filtered": 2,
+  "initial_foreground_area": 374549,
+  "initial_filtered_area": 374509,
+  "final_components_raw": 2,
+  "final_components_filtered": 2,
+  "final_foreground_area": 374485,
+  "final_filtered_area": 374485
+}

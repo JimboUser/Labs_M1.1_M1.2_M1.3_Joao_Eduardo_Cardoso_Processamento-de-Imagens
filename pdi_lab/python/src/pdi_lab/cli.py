@@ -46,8 +46,13 @@ def build_parser() -> argparse.ArgumentParser:
         "h_max",
         "s_max",
         "v_max",
+        "connectivity",
+        "config",
     ]:
         parser.add_argument(f"--{name}")
+
+    # Aceita o padrão do enunciado e mantém compatibilidade.
+    parser.add_argument("--min-area", "--min_area", dest="min_area")
 
     return parser
 

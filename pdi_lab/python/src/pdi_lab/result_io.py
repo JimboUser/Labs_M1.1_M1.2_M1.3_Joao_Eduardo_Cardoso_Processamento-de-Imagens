@@ -81,17 +81,71 @@ def derived_output_path(path: str | Path, suffix: str) -> Path:
     )
 
 
-def write_json_object(path: str | Path, values: Mapping[str, str]) -> None:
+def write_json_object(path: str | Path, values: Mapping[str, object]) -> None:
     """Serializa pares texto->texto, como nas variantes C++ e Java."""
 
     output = ensure_parent_directory(path)
-    normalized = {str(key): str(value) for key, value in values.items()}
+
     try:
         with output.open("w", encoding="utf-8") as file:
-            json.dump(normalized, file, ensure_ascii=False, indent=2)
+            json.dump(values, file, ensure_ascii=False, indent=2)
             file.write("\n")
     except OSError as error:
         raise PdiError(
             exit_code.WRITE_ERROR,
             f"Nao foi possivel criar o JSON: {output}",
+        ) from error
+
+
+def write_components_csv(
+    path: str | Path,
+    components: Sequence[Mapping[str, object]],
+) -> None:
+    """Salva as medidas dos componentes conexos em CSV."""
+
+    output = ensure_parent_directory(path)
+
+    columns = [
+        "label",
+        "area",
+        "x",
+        "y",
+        "width",
+        "height",
+        "cx",
+        "cy",
+        "kept",
+    ]
+
+    try:
+        with output.open(
+            "w", newline="", encoding="utf-8"
+        ) as file:
+            writer = csv.DictWriter(
+                file,
+                fieldnames=columns,
+                extrasaction="ignore",
+            )
+            writer.writeheader()
+
+            for component in components:
+                row = {
+                    column: component.get(column, "")
+                    for column in columns
+                }
+
+                # Registra o resultado do filtro como booleano textual.
+                if "kept" not in component:
+                    row["kept"] = "true"
+                else:
+                    row["kept"] = str(
+                        bool(component["kept"])
+                    ).lower()
+
+                writer.writerow(row)
+
+    except OSError as error:
+        raise PdiError(
+            exit_code.WRITE_ERROR,
+            f"Nao foi possivel criar o CSV: {output}",
         ) from error

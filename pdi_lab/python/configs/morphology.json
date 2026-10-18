@@ -1,0 +1,15 @@
+{
+  "kernel_shape": "ellipse",
+  "kernel_size": 3,
+  "iterations": 1,
+  "sequence": [
+    {
+      "operation": "open",
+      "purpose": "Remover pequenos componentes e testar a reducao de conexoes estreitas."
+    },
+    {
+      "operation": "close",
+      "purpose": "Preencher pequenas lacunas e testar a continuidade das regioes."
+    }
+  ]
+}

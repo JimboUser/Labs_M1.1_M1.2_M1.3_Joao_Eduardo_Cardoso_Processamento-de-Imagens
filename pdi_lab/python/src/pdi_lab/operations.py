@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 import cv2
 import numpy as np
+from pathlib import Path
+import json
 
 from . import exit_code
 from .cli import CliOptions
@@ -18,7 +20,9 @@ from .parameters import (
 from .result_io import (
     derived_output_path,
     write_histogram_csv,
-    write_matrix_csv
+    write_matrix_csv,
+    write_components_csv,
+    write_json_object,
 )
 
 
@@ -51,6 +55,8 @@ KNOWN_OPERATIONS = {
 
     # M2.1 —
     "segment",
+    # M2.2 —
+    "analyze",
 }
 
 
@@ -676,6 +682,289 @@ def segment_hsv(image, lower, upper):
     return cv2.inRange(hsv, lower, upper)
 
 
+def analyze_components(
+    mask: np.ndarray,
+    connectivity: int = 8,
+) -> tuple[np.ndarray, list[dict[str, int | float]]]:
+    """Identifica e mede os componentes conexos de uma mascara binaria."""
+
+    if mask.ndim != 2:
+        raise ValueError(
+            "A analise exige uma mascara em escala de cinza."
+        )
+
+    if not np.isin(mask, [0, 255]).all():
+        raise ValueError(
+            "A mascara deve conter somente pixels 0 e 255."
+        )
+
+    if connectivity not in {4, 8}:
+        raise ValueError(
+            "A conectividade deve ser 4 ou 8."
+        )
+
+    # OpenCV trabalha com uma imagem binaria de 8 bits.
+    binary = (mask == 255).astype(np.uint8)
+
+    num_labels, labels, stats, centroids = (
+        cv2.connectedComponentsWithStats(
+            binary,
+            connectivity=connectivity,
+        )
+    )
+
+    components = []
+
+    # O rotulo 0 representa o fundo e nao deve ser contabilizado.
+    for label in range(1, num_labels):
+        x = int(stats[label, cv2.CC_STAT_LEFT])
+        y = int(stats[label, cv2.CC_STAT_TOP])
+        width = int(stats[label, cv2.CC_STAT_WIDTH])
+        height = int(stats[label, cv2.CC_STAT_HEIGHT])
+        area = int(stats[label, cv2.CC_STAT_AREA])
+
+        cx = float(centroids[label, 0])
+        cy = float(centroids[label, 1])
+
+        components.append({
+            "label": label,
+            "area": area,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "cx": cx,
+            "cy": cy,
+        })
+
+    return labels, components
+
+
+
+def load_morphology_config(path: str | Path) -> dict:
+    """Carrega e valida a configuração das operações morfológicas."""
+    try:
+        with Path(path).open("r", encoding="utf-8") as file:
+            config = json.load(file)
+    except FileNotFoundError as error:
+        raise ValueError(
+            f"Arquivo de configuração não encontrado: {path}"
+        ) from error
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"JSON inválido: {error.msg}"
+        ) from error
+    except OSError as error:
+        raise ValueError(
+            f"Não foi possível ler a configuração: {error}"
+        ) from error
+
+    if not isinstance(config, dict):
+        raise ValueError("A configuração deve ser um objeto JSON.")
+
+    shape = config.get("kernel_shape")
+    if shape not in {"rect", "ellipse", "cross"}:
+        raise ValueError(
+            "kernel_shape deve ser 'rect', 'ellipse' ou 'cross'."
+        )
+
+    size = config.get("kernel_size")
+    if (
+        isinstance(size, bool)
+        or not isinstance(size, int)
+        or size <= 0
+        or size % 2 == 0
+    ):
+        raise ValueError(
+            "kernel_size deve ser um inteiro positivo e ímpar."
+        )
+
+    iterations = config.get("iterations")
+    if (
+        isinstance(iterations, bool)
+        or not isinstance(iterations, int)
+        or iterations <= 0
+    ):
+        raise ValueError("iterations deve ser um inteiro positivo.")
+
+    sequence = config.get("sequence")
+    if not isinstance(sequence, list) or len(sequence) < 2:
+        raise ValueError(
+            "sequence deve conter pelo menos duas operações."
+        )
+
+    allowed_operations = {"open", "close", "erode", "dilate"}
+    has_open_or_close = False
+
+    for index, step in enumerate(sequence, start=1):
+        if not isinstance(step, dict):
+            raise ValueError(
+                f"A etapa {index} deve ser um objeto JSON."
+            )
+
+        operation = step.get("operation")
+        if operation not in allowed_operations:
+            raise ValueError(
+                f"Operação inválida na etapa {index}: {operation!r}."
+            )
+
+        if operation in {"open", "close"}:
+            has_open_or_close = True
+
+        purpose = step.get("purpose")
+        if not isinstance(purpose, str) or not purpose.strip():
+            raise ValueError(
+                f"A etapa {index} precisa informar sua finalidade em 'purpose'."
+            )
+
+    if not has_open_or_close:
+        raise ValueError(
+            "A sequência deve incluir pelo menos uma operação "
+            "'open' ou 'close'."
+        )
+
+    return config
+
+
+
+def apply_morphology_sequence(
+    mask: np.ndarray,
+    config: dict,
+    output_prefix: str,
+) -> tuple[np.ndarray, list[dict[str, int | str]]]:
+    """Aplica a sequência morfológica e salva cada etapa."""
+    shape_map = {
+        "rect": cv2.MORPH_RECT,
+        "ellipse": cv2.MORPH_ELLIPSE,
+        "cross": cv2.MORPH_CROSS,
+    }
+
+    kernel = cv2.getStructuringElement(
+        shape_map[config["kernel_shape"]],
+        (config["kernel_size"], config["kernel_size"]),
+    )
+
+    iterations = config["iterations"]
+    current_mask = mask.copy()
+    stage_statistics = []
+
+    # Preserva a máscara inicial, sem modificá-la.
+    write_image(f"{output_prefix}_initial.png", current_mask)
+
+    for index, step in enumerate(config["sequence"], start=1):
+        operation = step["operation"]
+
+        if operation == "open":
+            current_mask = cv2.morphologyEx(
+                current_mask,
+                cv2.MORPH_OPEN,
+                kernel,
+                iterations=iterations,
+            )
+        elif operation == "close":
+            current_mask = cv2.morphologyEx(
+                current_mask,
+                cv2.MORPH_CLOSE,
+                kernel,
+                iterations=iterations,
+            )
+        elif operation == "erode":
+            current_mask = cv2.erode(
+                current_mask,
+                kernel,
+                iterations=iterations,
+            )
+        elif operation == "dilate":
+            current_mask = cv2.dilate(
+                current_mask,
+                kernel,
+                iterations=iterations,
+            )
+
+        stage_path = (
+            f"{output_prefix}_stage_{index:02d}_{operation}.png"
+        )
+        write_image(stage_path, current_mask)
+
+        _, stage_components = analyze_components(
+            current_mask,
+            connectivity=8,
+        )
+
+        stage_statistics.append({
+            "stage": index,
+            "operation": operation,
+            "components": len(stage_components),
+            "foreground_area": int(
+                np.count_nonzero(current_mask == 255)
+            ),
+        })
+
+        print(f"Etapa {index}: {operation} — {stage_path}")
+
+    write_image(f"{output_prefix}_final.png", current_mask)
+
+    return current_mask, stage_statistics
+
+
+def create_component_visualization(
+    mask: np.ndarray,
+    labels: np.ndarray,
+    components: list[dict[str, int | float]],
+    output_path: str,
+) -> None:
+    """Gera uma imagem colorida com rótulos e caixas delimitadoras."""
+    if mask.ndim != 2 or labels.ndim != 2:
+        raise ValueError(
+            "A visualizacao exige mascara e rotulos em escala de cinza."
+        )
+
+    if mask.shape != labels.shape:
+        raise ValueError(
+            "A mascara e a matriz de rotulos devem ter o mesmo tamanho."
+        )
+
+    # Converte os rótulos em uma imagem colorida.
+    labels_uint8 = (labels.astype(np.int64) % 256).astype(np.uint8)
+    visualization = cv2.applyColorMap(
+        labels_uint8,
+        cv2.COLORMAP_JET,
+    )
+
+    # Mantém o fundo preto.
+    visualization[mask == 0] = (0, 0, 0)
+
+    for component in components:
+        label = int(component["label"])
+        x = int(component["x"])
+        y = int(component["y"])
+        width = int(component["width"])
+        height = int(component["height"])
+
+        # Desenha a caixa delimitadora.
+        cv2.rectangle(
+            visualization,
+            (x, y),
+            (x + width - 1, y + height - 1),
+            (255, 255, 255),
+            2,
+        )
+
+        # Identifica o componente próximo ao canto superior esquerdo.
+        cv2.putText(
+            visualization,
+            str(label),
+            (x, max(y - 5, 15)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+    write_image(output_path, visualization)
+
+
 # ---------------------------------------------------------------------------
 # Despacho das operações
 # ---------------------------------------------------------------------------
@@ -883,6 +1172,201 @@ def run_operation(options: CliOptions) -> int:
         )
 
         return exit_code.SUCCESS
+
+    if options.operation == "analyze":
+        config_path = (
+                options.parameters.get("config")
+                or "configs/morphology.json"
+        )
+
+        try:
+            morphology_config = load_morphology_config(config_path)
+        except ValueError as error:
+            print(
+                f"Erro na configuração morfológica: {error}",
+                file=sys.stderr,
+            )
+            return exit_code.INVALID_PARAMETER
+
+        connectivity = (
+            parameter_as_int(options, "connectivity")
+            if options.parameters.get("connectivity") is not None
+            else 8
+        )
+
+        min_area = (
+            parameter_as_int(options, "min_area")
+            if options.parameters.get("min_area") is not None
+            else 0
+        )
+
+        output_prefix = options.output
+
+        # Preserva e valida a mascara original.
+        initial_mask = image.copy()
+
+        try:
+            _, components_4 = analyze_components(
+                initial_mask, connectivity=4
+            )
+            _, components_8 = analyze_components(
+                initial_mask, connectivity=8
+            )
+            initial_labels, components = analyze_components(
+                initial_mask, connectivity=connectivity
+            )
+        except ValueError as error:
+            print(
+                f"Erro na mascara inicial: {error}",
+                file=sys.stderr,
+            )
+            return exit_code.INVALID_PARAMETER
+
+        create_component_visualization(
+            initial_mask,
+            initial_labels,
+            components,
+            f"{output_prefix}_initial_labels.png",
+        )
+
+        # Registra quais componentes atendem ao filtro de area.
+        for component in components:
+            component["kept"] = component["area"] >= min_area
+
+        filtered_components = [
+            component
+            for component in components
+            if component["kept"]
+        ]
+
+        total_foreground = int(
+            np.count_nonzero(initial_mask == 255)
+        )
+
+        initial_component_area = sum(
+            component["area"] for component in components
+        )
+
+        if initial_component_area != total_foreground:
+            print(
+                "Erro: a soma das áreas dos componentes iniciais "
+                "não corresponde à área total do primeiro plano.",
+                file=sys.stderr,
+            )
+            return exit_code.INVALID_PARAMETER
+
+        # Aplica a sequencia morfologica e salva cada etapa.
+        try:
+            final_mask, stage_statistics = apply_morphology_sequence(
+                initial_mask,
+                morphology_config,
+                output_prefix,
+            )
+        except (ValueError, OSError) as error:
+            print(
+                f"Erro ao aplicar morfologia: {error}",
+                file=sys.stderr,
+            )
+            return exit_code.INVALID_PARAMETER
+
+        # Analisa os componentes da mascara final.
+        try:
+            final_labels, final_components = analyze_components(
+                final_mask,
+                connectivity=connectivity,
+            )
+
+            create_component_visualization(
+                final_mask,
+                final_labels,
+                final_components,
+                f"{output_prefix}_labels.png",
+            )
+        except ValueError as error:
+            print(
+                f"Erro na mascara final: {error}",
+                file=sys.stderr,
+            )
+            return exit_code.INVALID_PARAMETER
+
+        for component in final_components:
+            component["kept"] = component["area"] >= min_area
+
+        final_filtered_components = [
+            component
+            for component in final_components
+            if component["kept"]
+        ]
+
+        final_foreground = int(
+            np.count_nonzero(final_mask == 255)
+        )
+
+        final_component_area = sum(
+            component["area"] for component in final_components
+        )
+
+        if final_component_area != final_foreground:
+            print(
+                "Erro: a soma das áreas dos componentes finais "
+                "não corresponde à área total do primeiro plano.",
+                file=sys.stderr,
+            )
+            return exit_code.INVALID_PARAMETER
+
+        # Salva os dados dos componentes iniciais e finais.
+        write_components_csv(
+            f"{output_prefix}_initial.csv",
+            components,
+        )
+        write_components_csv(
+            f"{output_prefix}_final.csv",
+            final_components,
+        )
+
+        # Salva o resumo para comparacao antes/depois.
+        write_json_object(
+            f"{output_prefix}_summary.json",
+            {
+                "connectivity": connectivity,
+                "min_area": min_area,
+                "morphology": morphology_config,
+                "stage_statistics": stage_statistics,
+                "initial_components_connectivity_4": len(components_4),
+                "initial_components_connectivity_8": len(components_8),
+                "initial_components_raw": len(components),
+                "initial_components_filtered": len(filtered_components),
+                "initial_foreground_area": total_foreground,
+                "initial_filtered_area": sum(
+                    component["area"]
+                    for component in filtered_components
+                ),
+                "final_components_raw": len(final_components),
+                "final_components_filtered": len(final_filtered_components),
+                "final_foreground_area": final_foreground,
+                "final_filtered_area": sum(
+                    component["area"]
+                    for component in final_filtered_components
+                ),
+            },
+        )
+
+        print(f"Conectividade selecionada: {connectivity}")
+        print(f"Componentes iniciais: {len(components)}")
+        print(f"Componentes iniciais mantidos: {len(filtered_components)}")
+        print(f"Componentes finais: {len(final_components)}")
+        print(
+            f"Componentes finais mantidos: "
+            f"{len(final_filtered_components)}"
+        )
+        print(f"Area inicial: {total_foreground}")
+        print(f"Area final: {final_foreground}")
+        print(f"CSV inicial: {output_prefix}_initial.csv")
+        print(f"CSV final: {output_prefix}_final.csv")
+        print(f"Resumo: {output_prefix}_summary.json")
+
+        return exit_code.SUCCESS
+
 
     print(
         f"Operacao '{options.operation}' reconhecida, "
